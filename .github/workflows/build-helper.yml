@@ -1,0 +1,71 @@
+name: Build unsigned FairPlayed helper
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: Fetch reviewed helper source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: morzelowski/FairPlayed
+          ref: bad7df138839b5e0ac8b9f20cc4689140b8436fb
+          path: helper-source
+          persist-credentials: false
+
+      - name: Build unsigned device app
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcodebuild \
+            -project helper-source/FairPlayed/FairPlayed.xcodeproj \
+            -scheme FairPlayed \
+            -configuration Debug \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/fairplayed-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+      - name: Package helper for local signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/package/Payload" "$RUNNER_TEMP/artifacts"
+          ditto "$RUNNER_TEMP/fairplayed-build/Build/Products/Debug-iphoneos/FairPlayed.app" \
+            "$RUNNER_TEMP/package/Payload/FairPlayed.app"
+          test ! -d "$RUNNER_TEMP/package/Payload/FairPlayed.app/EmbeddedPayload"
+          /usr/bin/file "$RUNNER_TEMP/package/Payload/FairPlayed.app/FairPlayed"
+          (
+            cd "$RUNNER_TEMP/package"
+            /usr/bin/zip -qry "$RUNNER_TEMP/artifacts/FairPlayed-unsigned.ipa" Payload
+          )
+          printf '%s\n' \
+            'source_repository=https://github.com/morzelowski/FairPlayed' \
+            'source_commit=bad7df138839b5e0ac8b9f20cc4689140b8436fb' \
+            'payload=none' \
+            'signing=disabled' \
+            > "$RUNNER_TEMP/artifacts/build-provenance.txt"
+          (
+            cd "$RUNNER_TEMP/artifacts"
+            /usr/bin/shasum -a 256 FairPlayed-unsigned.ipa > SHA256SUMS.txt
+          )
+
+      - name: Save helper build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: FairPlayed-unsigned
+          path: ${{ runner.temp }}/artifacts/*
+          retention-days: 1
+          if-no-files-found: error

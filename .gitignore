@@ -1,0 +1,8 @@
+*.ipa
+*.p12
+*.mobileprovision
+*.sinf
+*.key
+*.pem
+payload/
+out/
